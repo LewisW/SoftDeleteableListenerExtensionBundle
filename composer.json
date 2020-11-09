@@ -7,11 +7,11 @@
     }],
     "keywords": ["soft-deleteable"],
     "require": {
-        "php": "^7.2.5",
-        "symfony/framework-bundle": "^5.0"
+        "php": "^7.1.3",
+        "symfony/framework-bundle": "^4.2|^5.0"
     },
     "require-dev": {
-        "symfony/console": "^5.0"
+        "symfony/console": "^4.2|^5.0"
     },
     "target-dir": "Evence/Bundle/SoftDeleteableExtensionBundle",
     "minimum-stability": "dev",
