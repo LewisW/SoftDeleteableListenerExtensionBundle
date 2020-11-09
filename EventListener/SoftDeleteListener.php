@@ -113,11 +113,20 @@ class SoftDeleteListener
                                     ->getQuery()
                                     ->getResult();
 
+                                $entityMeta = $em->getClassMetadata(get_class($entity));
+                                $ids = $entityMeta->getIdentifierValues($entity);
+
                                 foreach ($mtmRelations as $mtmRelation) {
                                     try {
                                         $propertyAccessor = PropertyAccess::createPropertyAccessor();
                                         $collection = $propertyAccessor->getValue($mtmRelation, $property->name);
-                                        $collection->removeElement($entity);
+
+                                        foreach ($collection as $item) {
+                                            if ($entityMeta->getIdentifierValues($item) == $ids) {
+                                                $collection->removeElement($item);
+                                            }
+                                        }
+
                                     } catch (\Exception $e) {
                                         throw new \Exception(sprintf('No accessor found for %s in %s', $property->name, get_class($mtmRelation)));
                                     }
