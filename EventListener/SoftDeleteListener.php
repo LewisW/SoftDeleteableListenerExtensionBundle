@@ -104,8 +104,9 @@ class SoftDeleteListener
                             // two entities. This can be done on both side of the relation.
                             $allowMappedSide = get_class($entity) === $namespace;
                             $allowInversedSide = ($ns && $entity instanceof $ns);
+                            $entityMeta = $em->getClassMetadata(get_class($entity));
                             if ($allowInversedSide) {
-                                $mtmRelations = $em->getRepository($namespace)->createQueryBuilder('entity')
+                                $objects = $em->getRepository($namespace)->createQueryBuilder('entity')
                                     ->innerJoin(sprintf('entity.%s', $property->name), 'mtm')
                                     ->addSelect('mtm')
                                     ->andWhere(sprintf(':entity MEMBER OF entity.%s', $property->name))
@@ -113,10 +114,9 @@ class SoftDeleteListener
                                     ->getQuery()
                                     ->getResult();
 
-                                $entityMeta = $em->getClassMetadata(get_class($entity));
                                 $ids = $entityMeta->getIdentifierValues($entity);
 
-                                foreach ($mtmRelations as $mtmRelation) {
+                                foreach ($objects as $mtmRelation) {
                                     try {
                                         $propertyAccessor = PropertyAccess::createPropertyAccessor();
                                         $collection = $propertyAccessor->getValue($mtmRelation, $property->name);
@@ -135,12 +135,15 @@ class SoftDeleteListener
                                 try {
                                     $propertyAccessor = PropertyAccess::createPropertyAccessor();
                                     $collection = $propertyAccessor->getValue($entity, $property->name);
+                                    $objects = $collection->toArray();
                                     $collection->clear();
                                     continue;
                                 } catch (\Exception $e) {
                                     throw new \Exception(sprintf('No accessor found for %s in %s', $property->name, get_class($entity)));
                                 }
                             }
+
+                            $em->getUnitOfWork()->computeChangeSet($entityMeta, $entity);
                         }
                     }
 
@@ -334,10 +337,6 @@ class SoftDeleteListener
      */
     protected function isOnDeleteTypeSupported(onSoftDelete $onDelete, $relationship)
     {
-        if (strtoupper($onDelete->type) === 'SET NULL' && ($relationship instanceof ManyToMany || (property_exists($relationship, 'type') && $relationship->type === ClassMetadataInfo::MANY_TO_MANY))) {
-            return false;
-        }
-
         return true;
     }
 }
