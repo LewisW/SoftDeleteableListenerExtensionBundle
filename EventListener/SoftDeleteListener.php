@@ -95,18 +95,15 @@ class SoftDeleteListener
                             throw new \Exception(sprintf('%s is not supported for %s relationships', $onDelete->type, get_class($relationship)));
                         }
 
-                        if (($manyToOne || $oneToOne) && $ns && $entity instanceof $ns) {
-                            $objects = $em->getRepository($namespace)->findBy(array(
-                                $property->name => $entity,
-                            ));
-                        } elseif ($manyToMany) {
-                            // For ManyToMany relations, we only delete the relationship between
-                            // two entities. This can be done on both side of the relation.
-                            $allowMappedSide = get_class($entity) === $namespace;
-                            $allowInversedSide = ($ns && $entity instanceof $ns);
-                            $entityMeta = $em->getClassMetadata(get_class($entity));
-                            if ($allowInversedSide) {
-                                $objects = $em->getRepository($namespace)->createQueryBuilder('entity')
+                        if ($ns && $entity instanceof $ns) {
+                            if ($manyToOne || $oneToOne) {
+                                $objects = $em->getRepository($namespace)->findBy(array(
+                                    $property->name => $entity,
+                                ));
+                            } elseif ($manyToMany) {
+                                $entityMeta = $em->getClassMetadata(get_class($entity));
+
+                                $mtmRelations = $em->getRepository($namespace)->createQueryBuilder('entity')
                                     ->innerJoin(sprintf('entity.%s', $property->name), 'mtm')
                                     ->addSelect('mtm')
                                     ->andWhere(sprintf(':entity MEMBER OF entity.%s', $property->name))
@@ -116,34 +113,38 @@ class SoftDeleteListener
 
                                 $ids = $entityMeta->getIdentifierValues($entity);
 
-                                foreach ($objects as $mtmRelation) {
-                                    try {
-                                        $propertyAccessor = PropertyAccess::createPropertyAccessor();
-                                        $collection = $propertyAccessor->getValue($mtmRelation, $property->name);
+                                if ($onDelete->type !== 'SET NULL') {
+                                    $objects = $mtmRelations;
+                                }
 
-                                        foreach ($collection as $item) {
-                                            if ($entityMeta->getIdentifierValues($item) == $ids) {
-                                                $collection->removeElement($item);
+                                if ($onDelete->type !== 'SUCCESSOR') {
+                                    foreach ($mtmRelations as $mtmRelation) {
+                                        if ($associationMapping->isOwningSide) {
+                                            $propertyAccessor = PropertyAccess::createPropertyAccessor();
+                                            $collection = $propertyAccessor->getValue($mtmRelation, $property->name);
+
+                                            foreach ($collection as $item) {
+                                                if ($entityMeta->getIdentifierValues($item) == $ids) {
+                                                    $collection->removeElement($item);
+                                                }
                                             }
-                                        }
 
-                                    } catch (\Exception $e) {
-                                        throw new \Exception(sprintf('No accessor found for %s in %s', $property->name, get_class($mtmRelation)));
+                                            $em->getUnitOfWork()->computeChangeSet(
+                                                $em->getClassMetadata(get_class($mtmRelation)),
+                                                $mtmRelation
+                                            );
+                                        } else {
+                                            $propertyAccessor = PropertyAccess::createPropertyAccessor();
+                                            $collection = $propertyAccessor->getValue(
+                                                $entity,
+                                                $associationMapping->mappedBy
+                                            );
+                                            $collection->clear();
+                                            $em->getUnitOfWork()->computeChangeSet($entityMeta, $entity);
+                                        }
                                     }
                                 }
-                            } elseif ($allowMappedSide) {
-                                try {
-                                    $propertyAccessor = PropertyAccess::createPropertyAccessor();
-                                    $collection = $propertyAccessor->getValue($entity, $property->name);
-                                    $objects = $collection->toArray();
-                                    $collection->clear();
-                                    continue;
-                                } catch (\Exception $e) {
-                                    throw new \Exception(sprintf('No accessor found for %s in %s', $property->name, get_class($entity)));
-                                }
                             }
-
-                            $em->getUnitOfWork()->computeChangeSet($entityMeta, $entity);
                         }
                     }
 
