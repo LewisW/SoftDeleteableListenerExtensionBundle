@@ -3,6 +3,7 @@
 namespace Evence\Bundle\SoftDeleteableExtensionBundle\EventListener;
 
 use Doctrine\Common\Annotations\AnnotationReader;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\Common\Proxy\Proxy;
 use Doctrine\Common\Util\ClassUtils;
 use Doctrine\ORM\EntityManager;
@@ -61,7 +62,7 @@ class SoftDeleteListener
             foreach ($reflectionClass->getProperties() as $property) {
                 /** @var onSoftDelete $onDelete */
                 if ($onDelete = $reader->getPropertyAnnotation($property, onSoftDelete::class)) {
-                    $objects = null;
+                    $objects = [];
                     $manyToMany = null;
                     $manyToOne = null;
                     $oneToOne = null;
@@ -97,9 +98,13 @@ class SoftDeleteListener
 
                         if ($ns && $entity instanceof $ns) {
                             if ($manyToOne || $oneToOne) {
-                                $objects = $em->getRepository($namespace)->findBy(array(
-                                    $property->name => $entity,
-                                ));
+                                if ($onDelete->type !== 'SET NULL') {
+                                    $objects = $em->getRepository($namespace)->findBy(
+                                        array(
+                                            $property->name => $entity,
+                                        )
+                                    );
+                                }
                             } elseif ($manyToMany) {
                                 $entityMeta = $em->getClassMetadata(get_class($entity));
 
@@ -113,10 +118,6 @@ class SoftDeleteListener
 
                                 $ids = $entityMeta->getIdentifierValues($entity);
 
-                                if ($onDelete->type !== 'SET NULL') {
-                                    $objects = $mtmRelations;
-                                }
-
                                 if ($onDelete->type !== 'SUCCESSOR') {
                                     foreach ($mtmRelations as $mtmRelation) {
                                         if ($associationMapping->isOwningSide) {
@@ -125,6 +126,10 @@ class SoftDeleteListener
 
                                             foreach ($collection as $item) {
                                                 if ($entityMeta->getIdentifierValues($item) == $ids) {
+                                                    if ($onDelete->type !== 'SET NULL') {
+                                                        $objects[] = $item;
+                                                    }
+
                                                     $collection->removeElement($item);
                                                 }
                                             }
@@ -135,10 +140,14 @@ class SoftDeleteListener
                                             );
                                         } else {
                                             $propertyAccessor = PropertyAccess::createPropertyAccessor();
+                                            /** @var Collection $collection */
                                             $collection = $propertyAccessor->getValue(
                                                 $entity,
                                                 $associationMapping->mappedBy
                                             );
+                                            if ($onDelete->type !== 'SET NULL') {
+                                                $objects = $collection->toArray();
+                                            }
                                             $collection->clear();
                                             $em->getUnitOfWork()->computeChangeSet($entityMeta, $entity);
                                         }
@@ -338,6 +347,10 @@ class SoftDeleteListener
      */
     protected function isOnDeleteTypeSupported(onSoftDelete $onDelete, $relationship)
     {
+        if (strtoupper($onDelete->type) === 'SUCCESSOR' && ($relationship instanceof ManyToMany || (property_exists($relationship, 'type') && $relationship->type === ClassMetadataInfo::MANY_TO_MANY))) {
+            return false;
+        }
+
         return true;
     }
 }
